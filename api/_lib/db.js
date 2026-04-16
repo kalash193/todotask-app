@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { put } from "@vercel/blob";
+import { get, head, put } from "@vercel/blob";
 
 const DB_PATH = "taskflow/db.json";
 const __filename = fileURLToPath(import.meta.url);
@@ -44,6 +44,10 @@ function useBlobStorage() {
   return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
 }
 
+function isVercelRuntime() {
+  return process.env.VERCEL === "1";
+}
+
 async function ensureLocalDb() {
   try {
     await fs.access(LOCAL_DB_FILE);
@@ -65,26 +69,27 @@ async function writeLocalDb(db) {
 }
 
 async function readBlobDb() {
-  const response = await fetch(
-    `https://blob.vercel-storage.com/${DB_PATH}`,
-    {
-      headers: {
-        Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`,
-      },
-    },
-  );
-
-  if (response.status === 404) {
+  try {
+    await head(DB_PATH);
+  } catch {
     const seed = createSeed();
     await writeBlobDb(seed);
     return seed;
   }
 
-  if (!response.ok) {
-    throw new Error("Failed to read Vercel Blob database");
+  const blob = await get(DB_PATH, { access: "private" });
+  const raw = await new Response(blob.body).text();
+  return JSON.parse(raw);
+}
+
+async function readRuntimeFallbackDb() {
+  if (isVercelRuntime() && !useBlobStorage()) {
+    throw new Error(
+      "Vercel Blob is not configured. Add a Blob store to the Vercel project so /api can persist data.",
+    );
   }
 
-  return response.json();
+  return readLocalDb();
 }
 
 async function writeBlobDb(db) {
@@ -97,11 +102,21 @@ async function writeBlobDb(db) {
 }
 
 export async function readDb() {
-  return useBlobStorage() ? readBlobDb() : readLocalDb();
+  return useBlobStorage() ? readBlobDb() : readRuntimeFallbackDb();
 }
 
 export async function writeDb(db) {
-  return useBlobStorage() ? writeBlobDb(db) : writeLocalDb(db);
+  if (useBlobStorage()) {
+    return writeBlobDb(db);
+  }
+
+  if (isVercelRuntime()) {
+    throw new Error(
+      "Vercel Blob is not configured. Add a Blob store to the Vercel project so /api can persist data.",
+    );
+  }
+
+  return writeLocalDb(db);
 }
 
 export function createId() {

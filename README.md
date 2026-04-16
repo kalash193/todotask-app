@@ -23,11 +23,11 @@ React frontend with:
 ## Vercel Deploy
 
 1. Import this repo into Vercel.
-2. Add a Vercel Blob store to the project.
+2. Add a Vercel Blob store to the project and redeploy.
 3. Redeploy.
 
 The `/api` backend uses Vercel Functions and stores auth/tasks in Blob in production.
-If Blob is not configured, local development falls back to `data/vercel-db.json`.
+If Blob is not configured, Vercel production requests will fail because serverless functions do not have persistent local storage. Local development still falls back to `data/vercel-db.json`.
 
 ## Demo Logins
 
