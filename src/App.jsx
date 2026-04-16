@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
-const API_BASE = "/api";
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL?.trim() || "/api";
 const priorities = ["Low", "Medium", "High", "Urgent"];
 const adminStatusOptions = [
   { value: "pending", label: "Pending" },
@@ -42,10 +43,18 @@ async function api(path, options = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  });
+  let response;
+
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+    });
+  } catch {
+    throw new Error(
+      "Cannot reach the server. If this is deployed on Vercel, set VITE_API_BASE_URL to your backend URL.",
+    );
+  }
 
   const data = await response.json().catch(() => ({}));
 

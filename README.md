@@ -16,6 +16,25 @@ React frontend with a PHP backend and MySQL storage.
 4. Start the PHP API with `npm run server`.
 5. Start the React frontend with `npm run dev`.
 
+## Vercel
+
+This project uses:
+
+- React frontend
+- PHP backend
+- MySQL database
+
+The frontend can be deployed on Vercel, but the PHP backend should be deployed on a PHP host, not on Vercel's standard setup.
+
+For Vercel frontend deployment:
+
+1. Deploy the React app to Vercel.
+2. Deploy the `php-backend` folder to a PHP-capable host.
+3. In Vercel Project Settings, add:
+   `VITE_API_BASE_URL=https://your-backend-domain.com/api`
+
+Without `VITE_API_BASE_URL`, the deployed frontend will try to call `/api` on Vercel itself and requests will fail.
+
 ## Demo Logins
 
 - Email: `admin@taskflow.local`
