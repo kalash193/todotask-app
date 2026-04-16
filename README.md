@@ -28,7 +28,6 @@ Run `npm run build`.
 
 ## Demo Logins
 
-- Admin: `admin@taskflow.local` / `admin123`
 - Employee: `employee@taskflow.local` / `employee123`
 
 ## Notes

@@ -322,7 +322,7 @@ export default function App() {
           <div style={styles.demoBox}>
             <div style={styles.demoTitle}>Login details</div>
             <div style={styles.demoLine}>
-              Admin: {CREDENTIALS.admin.email} / {CREDENTIALS.admin.password}
+              Admin login is hidden from the public screen.
             </div>
             <div style={styles.demoLine}>
               Employee: {CREDENTIALS.employee.email} /{" "}
