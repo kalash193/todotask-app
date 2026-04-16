@@ -1,12 +1,27 @@
 import { useEffect, useState } from "react";
 
-const API_BASE =
-  import.meta.env.VITE_API_BASE_URL?.trim() || "/api";
+const STORAGE_KEY = "taskflow-frontend-app";
+
+const CREDENTIALS = {
+  admin: {
+    email: "admin@taskflow.local",
+    password: "admin123",
+    role: "admin",
+    name: "TaskFlow Admin",
+  },
+  employee: {
+    email: "employee@taskflow.local",
+    password: "employee123",
+    role: "employee",
+    name: "Demo Employee",
+  },
+};
+
 const priorities = ["Low", "Medium", "High", "Urgent"];
-const adminStatusOptions = [
+const statusOptions = [
   { value: "pending", label: "Pending" },
   { value: "in-progress", label: "In Progress" },
-  { value: "submitted", label: "Submitted for Review" },
+  { value: "submitted", label: "Submitted" },
   { value: "verified", label: "Verified" },
   { value: "rejected", label: "Rejected" },
 ];
@@ -19,159 +34,87 @@ const statusTone = {
   rejected: { bg: "#fde4e4", text: "#b13c3c" },
 };
 
-const emptyCreateForm = {
+const emptyTaskForm = {
   title: "",
   description: "",
   priority: "Medium",
   deadline: "",
-  assigneeId: "",
   status: "pending",
 };
 
-function getToken() {
-  return window.localStorage.getItem("taskflow-token") || "";
-}
+const seedState = {
+  auth: null,
+  tasks: [],
+};
 
-async function api(path, options = {}) {
-  const token = getToken();
-  const headers = {
-    "Content-Type": "application/json",
-    ...(options.headers || {}),
-  };
-
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
+function loadState() {
+  const raw = window.localStorage.getItem(STORAGE_KEY);
+  if (!raw) {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seedState));
+    return seedState;
   }
-
-  let response;
 
   try {
-    response = await fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers,
-    });
+    return JSON.parse(raw);
   } catch {
-    throw new Error(
-      "Cannot reach the server. If this is deployed on Vercel, set VITE_API_BASE_URL to your backend URL.",
-    );
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seedState));
+    return seedState;
   }
-
-  const data = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    throw new Error(data.message || "Request failed");
-  }
-
-  return data;
 }
 
-function statusLabel(status) {
-  return (
-    adminStatusOptions.find((item) => item.value === status)?.label || status
-  );
+function saveState(nextState) {
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+}
+
+function createId() {
+  return `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+function formatStatus(status) {
+  return statusOptions.find((item) => item.value === status)?.label || status;
 }
 
 export default function App() {
   const [mode, setMode] = useState("login");
-  const [auth, setAuth] = useState({ user: null, token: getToken() });
+  const [auth, setAuth] = useState(null);
   const [tasks, setTasks] = useState([]);
-  const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
+  const [isCompact, setIsCompact] = useState(false);
   const [loginForm, setLoginForm] = useState({ email: "", password: "" });
-  const [registerForm, setRegisterForm] = useState({
-    name: "",
-    email: "",
-    password: "",
-  });
-  const [taskForm, setTaskForm] = useState(emptyCreateForm);
+  const [taskForm, setTaskForm] = useState(emptyTaskForm);
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [employeeNotes, setEmployeeNotes] = useState({});
   const [reviewFeedback, setReviewFeedback] = useState({});
 
   useEffect(() => {
-    let ignore = false;
-
-    async function bootstrap() {
-      const token = getToken();
-
-      if (!token) {
-        if (!ignore) {
-          setLoading(false);
-        }
-        return;
-      }
-
-      try {
-        const session = await api("/auth/me");
-        if (!ignore) {
-          setAuth({ user: session.user, token });
-        }
-      } catch {
-        window.localStorage.removeItem("taskflow-token");
-        if (!ignore) {
-          setAuth({ user: null, token: "" });
-          setLoading(false);
-        }
-      }
-    }
-
-    bootstrap();
-    return () => {
-      ignore = true;
-    };
+    const state = loadState();
+    setAuth(state.auth || null);
+    setTasks(state.tasks || []);
+    setLoading(false);
   }, []);
 
   useEffect(() => {
-    if (!auth.user) {
-      setTasks([]);
-      setEmployees([]);
-      return;
-    }
+    const syncViewport = () => setIsCompact(window.innerWidth < 960);
 
-    let ignore = false;
+    syncViewport();
+    window.addEventListener("resize", syncViewport);
 
-    async function loadWorkspace() {
-      setLoading(true);
-      try {
-        const [taskData, employeeData] = await Promise.all([
-          api("/todos"),
-          auth.user.role === "admin"
-            ? api("/employees")
-            : Promise.resolve({ employees: [] }),
-        ]);
+    return () => window.removeEventListener("resize", syncViewport);
+  }, []);
 
-        if (!ignore) {
-          setTasks(taskData.todos);
-          setEmployees(employeeData.employees);
-          if (
-            auth.user.role === "admin" &&
-            employeeData.employees.length > 0 &&
-            !taskForm.assigneeId
-          ) {
-            setTaskForm((current) => ({
-              ...current,
-              assigneeId: employeeData.employees[0].id,
-            }));
-          }
-        }
-      } catch (error) {
-        if (!ignore) {
-          showMessage(error.message, "error");
-        }
-      } finally {
-        if (!ignore) {
-          setLoading(false);
-        }
-      }
-    }
-
-    loadWorkspace();
+  useEffect(() => {
     return () => {
-      ignore = true;
+      window.clearTimeout(showMessage.timer);
     };
-  }, [auth.user]);
+  }, []);
+
+  function persistState(nextTasks, nextAuth = auth) {
+    setTasks(nextTasks);
+    setAuth(nextAuth);
+    saveState({ tasks: nextTasks, auth: nextAuth });
+  }
 
   function showMessage(text, type = "success") {
     setMessage({ text, type });
@@ -179,116 +122,104 @@ export default function App() {
     showMessage.timer = window.setTimeout(() => setMessage(null), 3000);
   }
 
+  function handleLogin(event) {
+    event.preventDefault();
+    const email = loginForm.email.trim().toLowerCase();
+    const password = loginForm.password;
+
+    const matched = Object.values(CREDENTIALS).find(
+      (user) => user.email === email && user.password === password,
+    );
+
+    if (!matched) {
+      showMessage("Invalid login details", "error");
+      return;
+    }
+
+    const nextAuth = {
+      id: matched.role,
+      role: matched.role,
+      name: matched.name,
+      email: matched.email,
+    };
+    persistState(tasks, nextAuth);
+    setLoginForm({ email: "", password: "" });
+    showMessage(`Welcome back, ${matched.name}`);
+  }
+
   function logout() {
-    window.localStorage.removeItem("taskflow-token");
-    setAuth({ user: null, token: "" });
-    setTaskForm(emptyCreateForm);
+    persistState(tasks, null);
     setEditingTaskId(null);
+    setTaskForm(emptyTaskForm);
     showMessage("Signed out");
   }
 
-  async function handleLogin(event) {
+  function handleTaskSubmit(event) {
     event.preventDefault();
     setSaving(true);
 
     try {
-      const data = await api("/auth/login", {
-        method: "POST",
-        body: JSON.stringify(loginForm),
-      });
-      window.localStorage.setItem("taskflow-token", data.token);
-      setAuth({ user: data.user, token: data.token });
-      setLoginForm({ email: "", password: "" });
-      showMessage(`Welcome back, ${data.user.name}`);
-    } catch (error) {
-      showMessage(error.message, "error");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleRegister(event) {
-    event.preventDefault();
-    setSaving(true);
-
-    try {
-      const data = await api("/auth/register", {
-        method: "POST",
-        body: JSON.stringify(registerForm),
-      });
-      window.localStorage.setItem("taskflow-token", data.token);
-      setAuth({ user: data.user, token: data.token });
-      setRegisterForm({ name: "", email: "", password: "" });
-      showMessage("Employee account created");
-    } catch (error) {
-      showMessage(error.message, "error");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleTaskSubmit(event) {
-    event.preventDefault();
-    setSaving(true);
-
-    try {
-      const payload = {
-        title: taskForm.title,
-        description: taskForm.description,
-        priority: taskForm.priority,
-        deadline: taskForm.deadline,
-        assigneeId: taskForm.assigneeId,
-        status: taskForm.status,
-      };
+      if (!taskForm.title.trim()) {
+        showMessage("Task title is required", "error");
+        return;
+      }
 
       if (editingTaskId) {
-        const data = await api(`/todos/${editingTaskId}`, {
-          method: "PUT",
-          body: JSON.stringify(payload),
-        });
-        setTasks((current) =>
-          current.map((task) => (task.id === editingTaskId ? data.todo : task)),
+        const nextTasks = tasks.map((task) =>
+          task.id === editingTaskId
+            ? {
+                ...task,
+                title: taskForm.title.trim(),
+                description: taskForm.description.trim(),
+                priority: taskForm.priority,
+                deadline: taskForm.deadline,
+                status: taskForm.status,
+                updatedAt: new Date().toISOString(),
+              }
+            : task,
         );
+        persistState(nextTasks);
         showMessage("Task updated");
       } else {
-        const data = await api("/todos", {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
-        setTasks((current) => [data.todo, ...current]);
+        const nextTask = {
+          id: createId(),
+          title: taskForm.title.trim(),
+          description: taskForm.description.trim(),
+          priority: taskForm.priority,
+          deadline: taskForm.deadline,
+          status: "pending",
+          assigneeId: "employee",
+          assigneeName: CREDENTIALS.employee.name,
+          assigneeEmail: CREDENTIALS.employee.email,
+          createdById: "admin",
+          createdByName: CREDENTIALS.admin.name,
+          completionNote: "",
+          adminFeedback: "",
+          reviewedAt: null,
+          reviewedById: null,
+          reviewedByName: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        persistState([nextTask, ...tasks]);
         showMessage("Task assigned to employee");
       }
 
       setEditingTaskId(null);
-      setTaskForm((current) => ({
-        ...emptyCreateForm,
-        assigneeId: employees[0]?.id || "",
-      }));
-    } catch (error) {
-      showMessage(error.message, "error");
+      setTaskForm(emptyTaskForm);
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleDelete(taskId) {
-    setSaving(true);
-    try {
-      await api(`/todos/${taskId}`, { method: "DELETE" });
-      setTasks((current) => current.filter((task) => task.id !== taskId));
-      if (editingTaskId === taskId) {
-        setEditingTaskId(null);
-        setTaskForm((current) => ({
-          ...emptyCreateForm,
-          assigneeId: employees[0]?.id || "",
-        }));
-      }
-      showMessage("Task deleted");
-    } catch (error) {
-      showMessage(error.message, "error");
-    } finally {
-      setSaving(false);
+  function handleDelete(taskId) {
+    const nextTasks = tasks.filter((task) => task.id !== taskId);
+    persistState(nextTasks);
+    if (editingTaskId === taskId) {
+      setEditingTaskId(null);
+      setTaskForm(emptyTaskForm);
     }
+    showMessage("Task deleted");
   }
 
   function startEdit(task) {
@@ -298,86 +229,104 @@ export default function App() {
       description: task.description || "",
       priority: task.priority,
       deadline: task.deadline || "",
-      assigneeId: task.assigneeId,
       status: task.status,
     });
   }
 
-  async function updateEmployeeTask(taskId, status) {
-    setSaving(true);
-    try {
-      const data = await api(`/todos/${taskId}/employee-update`, {
-        method: "PUT",
-        body: JSON.stringify({
-          status,
-          completionNote: employeeNotes[taskId] || "",
-        }),
-      });
-      setTasks((current) =>
-        current.map((task) => (task.id === taskId ? data.todo : task)),
-      );
-      showMessage(
-        status === "submitted"
-          ? "Submitted to admin for review"
-          : "Task moved to in-progress",
-      );
-    } catch (error) {
-      showMessage(error.message, "error");
-    } finally {
-      setSaving(false);
+  function updateEmployeeTask(taskId, status) {
+    const note = (employeeNotes[taskId] || "").trim();
+
+    if (status === "submitted" && !note) {
+      showMessage("Add work notes before submitting", "error");
+      return;
     }
+
+    const nextTasks = tasks.map((task) =>
+      task.id === taskId
+        ? {
+            ...task,
+            status,
+            completionNote: note,
+            adminFeedback: status === "submitted" ? "" : task.adminFeedback,
+            reviewedAt: status === "submitted" ? null : task.reviewedAt,
+            reviewedById: status === "submitted" ? null : task.reviewedById,
+            reviewedByName: status === "submitted" ? null : task.reviewedByName,
+            updatedAt: new Date().toISOString(),
+          }
+        : task,
+    );
+
+    persistState(nextTasks);
+    showMessage(
+      status === "submitted"
+        ? "Task submitted to admin"
+        : "Task moved to in progress",
+    );
   }
 
-  async function reviewTask(taskId, decision) {
-    setSaving(true);
-    try {
-      const data = await api(`/todos/${taskId}/review`, {
-        method: "PUT",
-        body: JSON.stringify({
-          decision,
-          adminFeedback: reviewFeedback[taskId] || "",
-        }),
-      });
-      setTasks((current) =>
-        current.map((task) => (task.id === taskId ? data.todo : task)),
-      );
-      showMessage(
-        decision === "verified"
-          ? "Task verified successfully"
-          : "Task sent back to employee",
-      );
-    } catch (error) {
-      showMessage(error.message, "error");
-    } finally {
-      setSaving(false);
+  function reviewTask(taskId, decision) {
+    const feedback = (reviewFeedback[taskId] || "").trim();
+
+    if (decision === "rejected" && !feedback) {
+      showMessage("Add feedback before rejecting", "error");
+      return;
     }
+
+    const nextTasks = tasks.map((task) =>
+      task.id === taskId
+        ? {
+            ...task,
+            status: decision,
+            adminFeedback: feedback,
+            reviewedAt: new Date().toISOString(),
+            reviewedById: "admin",
+            reviewedByName: CREDENTIALS.admin.name,
+            updatedAt: new Date().toISOString(),
+          }
+        : task,
+    );
+
+    persistState(nextTasks);
+    showMessage(
+      decision === "verified"
+        ? "Task verified successfully"
+        : "Task sent back to employee",
+    );
   }
+
+  const visibleTasks =
+    auth?.role === "admin"
+      ? tasks
+      : tasks.filter((task) => task.assigneeId === "employee");
 
   const reviewQueue = tasks.filter((task) => task.status === "submitted").length;
   const verifiedCount = tasks.filter((task) => task.status === "verified").length;
-  const employeeRejectedCount = tasks.filter(
+  const rejectedCount = visibleTasks.filter(
     (task) => task.status === "rejected",
   ).length;
 
-  if (loading && !auth.user) {
+  if (loading) {
     return <div style={styles.loading}>Loading TaskFlow...</div>;
   }
 
-  if (!auth.user) {
+  if (!auth) {
     return (
-      <div style={styles.shell}>
+      <div style={{ ...styles.shell, ...(isCompact ? styles.shellCompact : {}) }}>
         <div style={styles.heroPanel}>
-          <div style={styles.heroBadge}>Employee + admin workflow</div>
-          <h1 style={styles.heroTitle}>Employees submit. Admins verify.</h1>
+          <div style={styles.heroBadge}>Frontend only React app</div>
+          <h1 style={styles.heroTitle}>Works without backend.</h1>
           <p style={styles.heroText}>
-            Admins assign tasks and review submitted work. Employees finish only
-            their assigned tasks and send them for approval.
+            Admin and employee panels run fully in React and save data in the
+            browser with localStorage.
           </p>
           <div style={styles.demoBox}>
-            <div style={styles.demoTitle}>Demo logins</div>
-            <div style={styles.demoLine}>Admin: admin@taskflow.local / admin123</div>
+            <div style={styles.demoTitle}>Login details</div>
             <div style={styles.demoLine}>
-              Employee: employee@taskflow.local / employee123
+              Admin: {CREDENTIALS.admin.email} / {CREDENTIALS.admin.password}
+            </div>
+            <div style={styles.demoLine}>
+              Employee: {CREDENTIALS.employee.email} /{" "}
+              {CREDENTIALS.employee.password}
             </div>
           </div>
         </div>
@@ -390,96 +339,39 @@ export default function App() {
             >
               Login
             </button>
-            <button
-              style={mode === "register" ? styles.tabActive : styles.tab}
-              onClick={() => setMode("register")}
-            >
-              Employee Signup
-            </button>
           </div>
 
-          {mode === "login" ? (
-            <form onSubmit={handleLogin} style={styles.formCard}>
-              <label style={styles.label}>
-                Email
-                <input
-                  style={styles.input}
-                  type="email"
-                  value={loginForm.email}
-                  onChange={(event) =>
-                    setLoginForm((current) => ({
-                      ...current,
-                      email: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <label style={styles.label}>
-                Password
-                <input
-                  style={styles.input}
-                  type="password"
-                  value={loginForm.password}
-                  onChange={(event) =>
-                    setLoginForm((current) => ({
-                      ...current,
-                      password: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <button style={styles.primaryButton} disabled={saving}>
-                {saving ? "Signing in..." : "Login"}
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleRegister} style={styles.formCard}>
-              <label style={styles.label}>
-                Name
-                <input
-                  style={styles.input}
-                  value={registerForm.name}
-                  onChange={(event) =>
-                    setRegisterForm((current) => ({
-                      ...current,
-                      name: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <label style={styles.label}>
-                Email
-                <input
-                  style={styles.input}
-                  type="email"
-                  value={registerForm.email}
-                  onChange={(event) =>
-                    setRegisterForm((current) => ({
-                      ...current,
-                      email: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <label style={styles.label}>
-                Password
-                <input
-                  style={styles.input}
-                  type="password"
-                  value={registerForm.password}
-                  onChange={(event) =>
-                    setRegisterForm((current) => ({
-                      ...current,
-                      password: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <button style={styles.primaryButton} disabled={saving}>
-                {saving ? "Creating..." : "Create Employee Account"}
-              </button>
-            </form>
-          )}
+          <form onSubmit={handleLogin} style={styles.formCard}>
+            <label style={styles.label}>
+              Email
+              <input
+                style={styles.input}
+                type="email"
+                value={loginForm.email}
+                onChange={(event) =>
+                  setLoginForm((current) => ({
+                    ...current,
+                    email: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label style={styles.label}>
+              Password
+              <input
+                style={styles.input}
+                type="password"
+                value={loginForm.password}
+                onChange={(event) =>
+                  setLoginForm((current) => ({
+                    ...current,
+                    password: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <button style={styles.primaryButton}>Login</button>
+          </form>
         </div>
 
         {message && (
@@ -500,17 +392,17 @@ export default function App() {
       <header style={styles.header}>
         <div>
           <div style={styles.eyebrow}>
-            {auth.user.role === "admin" ? "Admin panel" : "Employee panel"}
+            {auth.role === "admin" ? "Admin Panel" : "Employee Panel"}
           </div>
-          <h1 style={styles.dashboardTitle}>Welcome, {auth.user.name}</h1>
+          <h1 style={styles.dashboardTitle}>Welcome, {auth.name}</h1>
           <p style={styles.dashboardText}>
-            {auth.user.role === "admin"
-              ? "Assign tasks, review submitted work, and verify whether the task is truly complete."
-              : "Work on your assigned tasks, add notes, and submit them for admin approval."}
+            {auth.role === "admin"
+              ? "Assign work, review employee submission, and verify completion."
+              : "See your assigned tasks, work on them, and submit them to admin."}
           </p>
         </div>
         <div style={styles.headerActions}>
-          <span style={styles.rolePill}>{auth.user.role}</span>
+          <span style={styles.rolePill}>{auth.role}</span>
           <button style={styles.secondaryButton} onClick={logout}>
             Logout
           </button>
@@ -518,24 +410,27 @@ export default function App() {
       </header>
 
       <section style={styles.statsGrid}>
-        {(auth.user.role === "admin"
+        {(auth.role === "admin"
           ? [
               { label: "All Tasks", value: tasks.length },
               { label: "Need Review", value: reviewQueue },
               { label: "Verified", value: verifiedCount },
-              { label: "Employees", value: employees.length },
+              { label: "Employees", value: 1 },
             ]
           : [
-              { label: "My Tasks", value: tasks.length },
+              { label: "My Tasks", value: visibleTasks.length },
               {
                 label: "In Progress",
-                value: tasks.filter((task) => task.status === "in-progress").length,
+                value: visibleTasks.filter(
+                  (task) => task.status === "in-progress",
+                ).length,
               },
               {
-                label: "Waiting Review",
-                value: tasks.filter((task) => task.status === "submitted").length,
+                label: "Submitted",
+                value: visibleTasks.filter((task) => task.status === "submitted")
+                  .length,
               },
-              { label: "Rejected", value: employeeRejectedCount },
+              { label: "Rejected", value: rejectedCount },
             ]
         ).map((item) => (
           <div key={item.label} style={styles.statCard}>
@@ -546,14 +441,15 @@ export default function App() {
       </section>
 
       <section
-        style={
-          auth.user.role === "admin" ? styles.workspace : styles.employeeWorkspace
-        }
+        style={{
+          ...(auth.role === "admin" ? styles.workspace : styles.employeeWorkspace),
+          ...(auth.role === "admin" && isCompact ? styles.workspaceCompact : {}),
+        }}
       >
-        {auth.user.role === "admin" && (
+        {auth.role === "admin" && (
           <form onSubmit={handleTaskSubmit} style={styles.editorPanel}>
             <div style={styles.panelTitle}>
-              {editingTaskId ? "Edit assigned task" : "Assign new task"}
+              {editingTaskId ? "Edit task" : "Assign new task"}
             </div>
             <label style={styles.label}>
               Task title
@@ -580,26 +476,6 @@ export default function App() {
                   }))
                 }
               />
-            </label>
-            <label style={styles.label}>
-              Assign employee
-              <select
-                style={styles.input}
-                value={taskForm.assigneeId}
-                onChange={(event) =>
-                  setTaskForm((current) => ({
-                    ...current,
-                    assigneeId: event.target.value,
-                  }))
-                }
-              >
-                <option value="">Select employee</option>
-                {employees.map((employee) => (
-                  <option key={employee.id} value={employee.id}>
-                    {employee.name} ({employee.email})
-                  </option>
-                ))}
-              </select>
             </label>
             <label style={styles.label}>
               Priority
@@ -647,7 +523,7 @@ export default function App() {
                     }))
                   }
                 >
-                  {adminStatusOptions.map((status) => (
+                  {statusOptions.map((status) => (
                     <option key={status.value} value={status.value}>
                       {status.label}
                     </option>
@@ -656,11 +532,7 @@ export default function App() {
               </label>
             )}
             <button style={styles.primaryButton} disabled={saving}>
-              {saving
-                ? "Saving..."
-                : editingTaskId
-                  ? "Update Task"
-                  : "Assign Task"}
+              {editingTaskId ? "Update Task" : "Assign Task"}
             </button>
           </form>
         )}
@@ -668,25 +540,22 @@ export default function App() {
         <div style={styles.listPanel}>
           <div style={styles.panelHeader}>
             <div style={styles.panelTitle}>
-              {auth.user.role === "admin"
-                ? "Assigned task board"
-                : "Tasks assigned to you"}
+              {auth.role === "admin" ? "Task board" : "My tasks"}
             </div>
-            {auth.user.role === "admin" && reviewQueue > 0 && (
+            {auth.role === "admin" && reviewQueue > 0 && (
               <div style={styles.reviewChip}>{reviewQueue} waiting review</div>
             )}
           </div>
-          {loading ? (
-            <div style={styles.emptyState}>Loading tasks...</div>
-          ) : tasks.length === 0 ? (
+
+          {visibleTasks.length === 0 ? (
             <div style={styles.emptyState}>
-              {auth.user.role === "admin"
-                ? "No tasks assigned yet."
+              {auth.role === "admin"
+                ? "No tasks yet. Assign the first one."
                 : "No tasks assigned to you yet."}
             </div>
           ) : (
             <div style={styles.todoList}>
-              {tasks.map((task) => (
+              {visibleTasks.map((task) => (
                 <article key={task.id} style={styles.todoCard}>
                   <div style={styles.todoTop}>
                     <div>
@@ -698,11 +567,6 @@ export default function App() {
                         {task.deadline && (
                           <span style={styles.metaText}>Due {task.deadline}</span>
                         )}
-                        {auth.user.role === "employee" && (
-                          <span style={styles.metaText}>
-                            Created by {task.createdByName}
-                          </span>
-                        )}
                       </div>
                     </div>
                     <span
@@ -712,7 +576,7 @@ export default function App() {
                         color: statusTone[task.status].text,
                       }}
                     >
-                      {statusLabel(task.status)}
+                      {formatStatus(task.status)}
                     </span>
                   </div>
 
@@ -729,7 +593,7 @@ export default function App() {
 
                   {task.completionNote && (
                     <div style={styles.noteBlock}>
-                      <div style={styles.noteTitle}>Employee completion note</div>
+                      <div style={styles.noteTitle}>Employee note</div>
                       <div style={styles.noteText}>{task.completionNote}</div>
                     </div>
                   )}
@@ -741,13 +605,12 @@ export default function App() {
                     </div>
                   )}
 
-                  {auth.user.role === "employee" &&
-                    task.assigneeId === auth.user.id &&
+                  {auth.role === "employee" &&
                     ["pending", "in-progress", "rejected"].includes(task.status) && (
                       <div style={styles.actionPanel}>
                         <textarea
                           style={styles.textareaCompact}
-                          placeholder="Write what you finished before submitting to admin"
+                          placeholder="Write what you completed"
                           value={employeeNotes[task.id] ?? task.completionNote ?? ""}
                           onChange={(event) =>
                             setEmployeeNotes((current) => ({
@@ -775,13 +638,13 @@ export default function App() {
                       </div>
                     )}
 
-                  {auth.user.role === "admin" && (
+                  {auth.role === "admin" && (
                     <div style={styles.actionPanel}>
                       {task.status === "submitted" && (
                         <>
                           <textarea
                             style={styles.textareaCompact}
-                            placeholder="Add feedback if you want changes or notes for approval"
+                            placeholder="Add admin feedback"
                             value={reviewFeedback[task.id] || ""}
                             onChange={(event) =>
                               setReviewFeedback((current) => ({
@@ -795,13 +658,13 @@ export default function App() {
                               style={styles.primaryButton}
                               onClick={() => reviewTask(task.id, "verified")}
                             >
-                              Verify complete
+                              Verify
                             </button>
                             <button
                               style={styles.deleteButton}
                               onClick={() => reviewTask(task.id, "rejected")}
                             >
-                              Send back
+                              Reject
                             </button>
                           </div>
                         </>
@@ -845,6 +708,7 @@ export default function App() {
 const styles = {
   loading: { minHeight: "100vh", display: "grid", placeItems: "center", background: "#f4f1eb", color: "#17324d", fontSize: "1.1rem" },
   shell: { minHeight: "100vh", display: "grid", gridTemplateColumns: "1.15fr 0.85fr", background: "linear-gradient(135deg, #f7efe2 0%, #f0e7db 48%, #d8e7f1 100%)" },
+  shellCompact: { gridTemplateColumns: "1fr" },
   heroPanel: { padding: "4rem", display: "flex", flexDirection: "column", justifyContent: "center", gap: "1.2rem" },
   heroBadge: { display: "inline-flex", width: "fit-content", padding: "0.4rem 0.8rem", borderRadius: "999px", background: "#17324d", color: "#fff", textTransform: "uppercase", letterSpacing: "0.04em", fontSize: "0.82rem" },
   heroTitle: { margin: 0, fontSize: "3rem", lineHeight: 1, color: "#13283b" },
@@ -876,6 +740,7 @@ const styles = {
   statValue: { fontSize: "2rem", color: "#13283b", fontWeight: 800 },
   statLabel: { color: "#5d7385", marginTop: "0.25rem" },
   workspace: { display: "grid", gridTemplateColumns: "360px 1fr", gap: "1.25rem", alignItems: "start" },
+  workspaceCompact: { gridTemplateColumns: "1fr" },
   employeeWorkspace: { display: "grid", gridTemplateColumns: "1fr", gap: "1.25rem" },
   editorPanel: { display: "grid", gap: "1rem", padding: "1.4rem", borderRadius: "1.25rem", background: "rgba(255,255,255,0.82)", border: "1px solid rgba(19,40,59,0.1)", boxShadow: "0 18px 40px rgba(19,40,59,0.06)" },
   listPanel: { padding: "1.4rem", borderRadius: "1.25rem", background: "rgba(255,255,255,0.82)", border: "1px solid rgba(19,40,59,0.1)", boxShadow: "0 18px 40px rgba(19,40,59,0.06)" },

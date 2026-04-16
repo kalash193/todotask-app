@@ -1,45 +1,39 @@
 # TaskFlow
 
-React frontend with:
+TaskFlow is now a frontend-only React app.
 
-- a Vercel-compatible Node serverless backend
-- a PHP hosting package for shared hosting
+It includes:
+
+- an `admin` panel
+- an `employee` panel
+- separate login passwords for both roles
+- task assign, update, submit, verify, and reject flows
+- browser-only storage with `localStorage`
 
 ## Stack
 
-- React + Vite
-- Vercel Node Functions
-- Vercel Blob for deployed server-side storage
-- PHP 8.2 + MySQL package for shared hosting fallback
+- React
+- Vite
+- localStorage
 
-## Local Setup
+## Run
 
-1. Copy `.env.example` to `.env`.
-2. Update the MySQL values in `.env`.
-3. Run `npm run db:setup`.
-4. Start the PHP API with `npm run server`.
-5. Start the React frontend with `npm run dev`.
+1. Install dependencies with `npm install`.
+2. Start the app with `npm run dev`.
+3. Open the local Vite URL in your browser.
 
-## Vercel Deploy
+## Build
 
-1. Import this repo into Vercel.
-2. Add a Vercel Blob store to the project and redeploy.
-3. Redeploy.
-
-The `/api` backend uses Vercel Functions and stores auth/tasks in Blob in production.
-If Blob is not configured, Vercel production requests will fail because serverless functions do not have persistent local storage. Local development still falls back to `data/vercel-db.json`.
+Run `npm run build`.
 
 ## Demo Logins
 
-- Email: `admin@taskflow.local`
-- Password: `admin123`
-- Email: `employee@taskflow.local`
-- Password: `employee123`
+- Admin: `admin@taskflow.local` / `admin123`
+- Employee: `employee@taskflow.local` / `employee123`
 
 ## Notes
 
-- The frontend talks to the backend through `/api`.
-- Vite proxies `/api` to `http://127.0.0.1:8000`.
-- On Vercel, task data is stored in Vercel Blob.
-- On the PHP hosting package, task data is stored in MySQL.
-- If you prefer manual SQL setup, `database/schema.sql` and `database/seed.sql` are still included.
+- No backend is required.
+- No database is required.
+- Data is saved in the current browser only.
+- If you clear browser storage, the saved tasks and login session are removed.

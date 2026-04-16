@@ -4,16 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "db:setup": "php php-backend/setup.php",
-    "server": "php -S 127.0.0.1:8000 php-backend/router.php",
     "dev": "vite",
-    "dev:full": "powershell -NoProfile -Command \"Start-Process powershell -ArgumentList '-NoProfile','-Command','npm run server'; npm run dev\"",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@vercel/blob": "^2.3.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },
