@@ -1,14 +1,18 @@
 # TaskFlow
 
-React frontend with a PHP backend and MySQL storage.
+React frontend with:
+
+- a Vercel-compatible Node serverless backend
+- a PHP hosting package for shared hosting
 
 ## Stack
 
 - React + Vite
-- PHP 8.2
-- MySQL
+- Vercel Node Functions
+- Vercel Blob for deployed server-side storage
+- PHP 8.2 + MySQL package for shared hosting fallback
 
-## Setup
+## Local Setup
 
 1. Copy `.env.example` to `.env`.
 2. Update the MySQL values in `.env`.
@@ -16,24 +20,14 @@ React frontend with a PHP backend and MySQL storage.
 4. Start the PHP API with `npm run server`.
 5. Start the React frontend with `npm run dev`.
 
-## Vercel
+## Vercel Deploy
 
-This project uses:
+1. Import this repo into Vercel.
+2. Add a Vercel Blob store to the project.
+3. Redeploy.
 
-- React frontend
-- PHP backend
-- MySQL database
-
-The frontend can be deployed on Vercel, but the PHP backend should be deployed on a PHP host, not on Vercel's standard setup.
-
-For Vercel frontend deployment:
-
-1. Deploy the React app to Vercel.
-2. Deploy the `php-backend` folder to a PHP-capable host.
-3. In Vercel Project Settings, add:
-   `VITE_API_BASE_URL=https://your-backend-domain.com/api`
-
-Without `VITE_API_BASE_URL`, the deployed frontend will try to call `/api` on Vercel itself and requests will fail.
+The `/api` backend uses Vercel Functions and stores auth/tasks in Blob in production.
+If Blob is not configured, local development falls back to `data/vercel-db.json`.
 
 ## Demo Logins
 
@@ -46,5 +40,6 @@ Without `VITE_API_BASE_URL`, the deployed frontend will try to call `/api` on Ve
 
 - The frontend talks to the backend through `/api`.
 - Vite proxies `/api` to `http://127.0.0.1:8000`.
-- User and todo data are stored in MySQL.
+- On Vercel, task data is stored in Vercel Blob.
+- On the PHP hosting package, task data is stored in MySQL.
 - If you prefer manual SQL setup, `database/schema.sql` and `database/seed.sql` are still included.
